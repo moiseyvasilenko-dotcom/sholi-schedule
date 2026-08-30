@@ -86,12 +86,18 @@ function shortSection(full) {
 /* ---------- data ---------- */
 
 async function fetchTopics() {
-  const res = await fetch(STORE_URL + "?t=" + Date.now(), { cache: "no-store" });
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  const raw = (await res.text()).trim();
-  if (!raw) return [];
-  const data = JSON.parse(raw);
-  return Array.isArray(data) ? data : (data.topics || []);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 9000);
+  try {
+    const res = await fetch(STORE_URL + "?t=" + Date.now(), { cache: "no-store", signal: ctrl.signal });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const raw = (await res.text()).trim();
+    if (!raw) return [];
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : (data.topics || []);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function persist(newTopics) {
@@ -538,10 +544,25 @@ function init() {
   window.addEventListener("offline", () => $("offline-bar").classList.remove("hidden"));
 
   skeletons(4);
-  refresh(true);
+  refresh(true).catch((e) => {
+    console.warn("init refresh failed:", e);
+    // последний шанс: рендер из кэша localStorage
+    topics = loadCache();
+    render();
+  });
 }
 
-init();
+/* init в try/catch: любая ошибка — красное сообщение вместо мёртвой страницы */
+(function bootstrap() {
+  try {
+    init();
+  } catch (e) {
+    console.warn("init failed:", e);
+    document.body.insertAdjacentHTML("beforeend",
+      '<div style="position:fixed;left:12px;right:12px;bottom:84px;background:#b91c1c;color:#fff;padding:12px;border-radius:12px;font-size:13px;z-index:99">Ошибка загрузки: ' +
+      String(e && e.message || e) + ' — обнови страницу</div>');
+  }
+})();
 
 /* Service Worker (PWA) */
 if ("serviceWorker" in navigator && location.protocol === "https:") {
