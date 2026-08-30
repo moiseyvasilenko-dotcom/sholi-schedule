@@ -478,6 +478,10 @@ function render() {
 
 /* ---------- theme ---------- */
 
+function themeColor() {
+  return (document.documentElement.dataset.theme === "dark") ? "#12131a" : "#4f46e5";
+}
+
 function applyTheme(mode) {
   document.documentElement.dataset.theme = mode === "dark" ? "dark" : "";
   localStorage.setItem(LS_THEME, mode);
