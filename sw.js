@@ -1,4 +1,4 @@
-const CACHE = "sholi-schedule-v4";
+const CACHE = "sholi-schedule-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,51 +10,30 @@ const ASSETS = [
   "./icons/icon-512.png",
 ];
 
-self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting())
-  );
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 
-self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
+self.addEventListener("activate", (event) => {
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
-/* Код страницы (html/css/js) — всегда свежий из сети, кэш только для офлайна.
-   Иконки/манифест — из кэша. Данные textdb.dev — всегда сеть, SW не трогаем. */
-self.addEventListener("fetch", (e) => {
-  const url = new URL(e.request.url);
+self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
   if (url.hostname === "textdb.dev") return;
-  if (e.request.method !== "GET") return;
-
-  const isShell = ["document", "script", "style"].includes(e.request.destination);
-
-  if (isShell) {
-    e.respondWith(
-      fetch(e.request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
-          return res;
-        })
-        .catch(() => caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || caches.match("./")))
-    );
+  const shell = ["document", "script", "style"].includes(event.request.destination);
+  if (shell) {
+    event.respondWith(fetch(event.request).then((response) => {
+      const copy = response.clone();
+      caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+      return response;
+    }).catch(() => caches.match(event.request, { ignoreSearch: true }).then((hit) => hit || caches.match("./"))));
     return;
   }
-
-  e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then(
-      (hit) =>
-        hit ||
-        fetch(e.request).then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
-          return res;
-        })
-    )
-  );
+  event.respondWith(caches.match(event.request, { ignoreSearch: true }).then((hit) => hit || fetch(event.request).then((response) => {
+    const copy = response.clone();
+    caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+    return response;
+  })));
 });

@@ -1,102 +1,89 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#4f46e5">
-  <title>Молодёжка · Темы</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f7f5">
+  <meta name="description" content="Темы встреч молодёжки">
+  <title>Темы · Молодёжка</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-
-  <!-- Верхняя панель -->
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="./" aria-label="Молодёжка · Темы"><span class="brand-mark">М</span><span><b>Молодёжка</b><small>Темы встреч</small></span></a>
-      <span class="topbar-right">
-        <span id="net-dot" class="net-dot" title="Сеть"></span>
-        <button id="theme-btn" class="icon-btn" title="Тёмная тема" aria-label="Переключить тему">🌙</button>
-        <button id="refresh-btn" class="icon-btn" title="Обновить" aria-label="Обновить">⟳</button>
-      </span>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="./" aria-label="Темы молодёжки">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span>Молодёжка</span>
+      </a>
+      <div class="header-actions">
+        <span id="sync-state" class="sync-state" aria-live="polite">Обновление…</span>
+        <button id="refresh-btn" class="icon-button" type="button" aria-label="Обновить список" title="Обновить">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
+        </button>
+        <button id="theme-btn" class="icon-button" type="button" aria-label="Сменить тему" title="Сменить тему">
+          <svg class="moon-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"/></svg>
+          <svg class="sun-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
+        </button>
+        <button id="add-btn" class="add-button" type="button">Добавить</button>
+      </div>
     </div>
   </header>
 
-  <main class="wrap">
-    <!-- Шапка со счётчиками -->
-    <section class="hero">
-      <div class="hero-copy"><p class="eyebrow">План встреч</p><h1>Темы для молодёжки</h1><p class="hero-sub">Выбери тему, которую хочешь провести, и укажи дату.</p></div>
-      <div class="stats">
-        <div class="stat"><span id="stat-total" class="stat-num">—</span><span class="stat-label">тем</span></div>
-        <div class="stat"><span id="stat-taken" class="stat-num c-taken">—</span><span class="stat-label">занято</span></div>
-        <div class="stat"><span id="stat-free" class="stat-num c-free">—</span><span class="stat-label">свободно</span></div>
+  <main class="page">
+    <section class="intro" aria-labelledby="page-title">
+      <div>
+        <h1 id="page-title">Темы</h1>
+        <p id="summary">Загружаем список…</p>
       </div>
     </section>
 
-    <div id="offline-bar" class="offline-bar hidden">📴 Нет связи — показаны сохранённые данные</div>
+    <section class="controls" aria-label="Фильтры тем">
+      <label class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <input id="search-input" type="search" placeholder="Найти тему" autocomplete="off">
+        <button id="search-clear" class="clear-button hidden" type="button" aria-label="Очистить поиск">×</button>
+      </label>
+      <div id="status-filter" class="status-filter" aria-label="Статус">
+        <button class="active" type="button" data-status="all">Все</button>
+        <button type="button" data-status="free">Свободные</button>
+        <button type="button" data-status="taken">Занятые</button>
+      </div>
+    </section>
 
-    <!-- Поиск -->
-    <div class="search-box">
-      <span class="search-ico">🔍</span>
-      <input type="search" id="search-input" placeholder="Поиск темы…" autocomplete="off">
-      <button id="search-clear" class="search-clear hidden" aria-label="Очистить">✕</button>
-    </div>
-
-    <!-- Статус: все / свободные / занятые -->
-    <div class="segmented" id="seg-status" role="tablist">
-      <button class="seg active" data-v="Все">Все</button>
-      <button class="seg" data-v="Свободные">Свободные</button>
-      <button class="seg" data-v="Занятые">Занятые</button>
-    </div>
-
-    <!-- Разделы (горизонтальный скролл) -->
-    <div class="chips-scroller" id="chips"></div>
-
-    <!-- Список тем -->
-    <section id="topics" class="topics" aria-live="polite"></section>
-
-    <p class="foot">Общие данные · синхронизируются автоматически</p>
+    <nav id="category-filter" class="categories" aria-label="Разделы тем"></nav>
+    <div id="offline-note" class="notice hidden" role="status">Нет сети. Показываем сохранённый список.</div>
+    <section id="topic-list" class="topic-list" aria-live="polite" aria-busy="true"></section>
   </main>
 
-  <!-- FAB добавить тему -->
-  <button id="fab" class="fab" aria-label="Добавить тему">＋ Тема</button>
-
-  <!-- нижний лист: взять тему -->
-  <dialog id="pick-sheet" class="sheet">
-    <div class="sheet-grab"></div>
-    <div class="sheet-inner">
-      <h2 class="sheet-title" id="dlg-title">Берёшь тему?</h2>
-      <p class="sheet-sub" id="dlg-sub"></p>
-      <div id="dlg-name-row">
-        <input type="text" id="dlg-name" placeholder="Твоё имя" maxlength="40" autocomplete="name">
+  <dialog id="add-dialog" class="modal">
+    <form id="add-form" method="dialog" class="modal-card">
+      <div class="modal-head">
+        <h2>Новая тема</h2>
+        <button id="add-close" class="icon-button" type="button" aria-label="Закрыть">×</button>
       </div>
-      <div id="dlg-date-row">
-        <label class="fld-label" for="dlg-date">Дата молодёжки</label>
-        <input type="date" id="dlg-date">
+      <label class="field">
+        <span>Название</span>
+        <input id="add-title" type="text" maxlength="120" required autofocus>
+      </label>
+      <label class="field">
+        <span>Короткое пояснение <em>необязательно</em></span>
+        <input id="add-note" type="text" maxlength="200">
+      </label>
+      <fieldset class="field category-field">
+        <legend>Раздел</legend>
+        <div id="add-categories" class="category-options"></div>
+      </fieldset>
+      <div class="modal-actions">
+        <button id="add-cancel" class="button secondary" type="button">Отмена</button>
+        <button class="button primary" type="submit">Сохранить</button>
       </div>
-      <div class="sheet-row">
-        <button class="btn ghost" id="dlg-cancel">Отмена</button>
-        <button class="btn primary" id="dlg-save" data-mode="take">Занять ✋</button>
-      </div>
-    </div>
+    </form>
   </dialog>
 
-  <!-- нижний лист: добавить тему -->
-  <dialog id="add-sheet" class="sheet">
-    <div class="sheet-grab"></div>
-    <div class="sheet-inner">
-      <h2 class="sheet-title">Новая тема</h2>
-      <form id="add-form">
-        <input type="text" id="add-title" placeholder="Название темы" maxlength="120" required>
-        <input type="text" id="add-note" placeholder="Пояснение (необязательно)" maxlength="200">
-        <div id="add-tag-chips" class="chips-in-sheet"></div>
-        <button type="submit" class="btn primary full">Сохранить тему</button>
-      </form>
-    </div>
-  </dialog>
-
+  <div id="toast-host" class="toast-host" aria-live="polite"></div>
   <script src="app.js"></script>
 </body>
 </html>

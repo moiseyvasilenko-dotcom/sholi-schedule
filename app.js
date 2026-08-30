@@ -1,13 +1,9 @@
-/* Молодёжка · Темы — UX 2.0: bottom sheets, поиск, фильтры, тёмная тема */
 "use strict";
 
 const STORE_URL = "https://textdb.dev/api/data/sholi-schedule-x9k2";
 const LS_CACHE = "sholi_topics_cache";
 const LS_NAME = "sholi_user_name";
 const LS_THEME = "sholi_theme";
-const SW_PATH = "./sw.js";
-
-/* [полное название из банка тем, короткая подпись чипа] */
 const SECTIONS = [
   ["Я, характер и принятие", "Я и характер"],
   ["Общение, дружба и конфликты", "Общение"],
@@ -18,553 +14,485 @@ const SECTIONS = [
   ["Современная жизнь и внутренние решения", "Жизнь и выбор"],
 ];
 
-const SECTION_COLORS = {
-  "Я, характер и принятие": "#5b4fe9",
-  "Общение, дружба и конфликты": "#be185d",
-  "Бог, вера и сомнения": "#0e9488",
-  "Любовь, симпатия и выбор человека": "#e07b39",
-  "Церковь, авторитет и служение": "#7c3aed",
-  "Добро, зло, грех и свобода": "#c2410c",
-  "Современная жизнь и внутренние решения": "#2563eb",
+const state = {
+  topics: [],
+  status: "all",
+  category: "all",
+  query: "",
+  openId: null,
+  busy: false,
+  addCategory: SECTIONS[0][0],
 };
 
-let topics = [];
-let filterTag = "Все";
-let filterStatus = "Все";
-let searchQ = "";
-let pickedTopic = null;
-
 const $ = (id) => document.getElementById(id);
+const els = {};
 
-/* ---------- helpers ---------- */
+function escapeText(value) {
+  return String(value ?? "");
+}
 
-function fmtDate(iso) {
+function sectionShort(name) {
+  return SECTIONS.find(([full]) => full === name)?.[1] || name || "Без раздела";
+}
+
+function formatDate(iso) {
   if (!iso) return "";
-  const d = new Date(iso + "T12:00:00");
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", weekday: "short" });
+  const date = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 }
 
 function nextSaturday() {
-  const d = new Date();
-  const add = (6 - d.getDay() + 7) % 7 || 7;
-  d.setDate(d.getDate() + add);
-  return d.toISOString().slice(0, 10);
+  const date = new Date();
+  const shift = (6 - date.getDay() + 7) % 7 || 7;
+  date.setDate(date.getDate() + shift);
+  return date.toISOString().slice(0, 10);
 }
 
 function saveCache() {
-  try { localStorage.setItem(LS_CACHE, JSON.stringify(topics)); } catch (e) {}
+  try { localStorage.setItem(LS_CACHE, JSON.stringify(state.topics)); } catch (_) {}
 }
 
 function loadCache() {
-  try { return JSON.parse(localStorage.getItem(LS_CACHE) || "[]"); } catch (e) { return []; }
+  try {
+    const value = JSON.parse(localStorage.getItem(LS_CACHE) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch (_) { return []; }
 }
 
-function toast(msg, ok) {
-  let host = $("toast-host");
-  if (!host) {
-    host = document.createElement("div");
-    host.id = "toast-host";
-    document.body.appendChild(host);
-  }
-  const t = document.createElement("div");
-  t.className = "toast" + (ok === true ? " ok" : ok === false ? " err" : "");
-  t.textContent = msg;
-  host.appendChild(t);
-  setTimeout(() => { t.remove(); }, 2600);
+function toast(message, error = false) {
+  const node = document.createElement("div");
+  node.className = `toast${error ? " error" : ""}`;
+  node.textContent = message;
+  els.toastHost.appendChild(node);
+  window.setTimeout(() => node.remove(), 2600);
 }
 
-function tagColor(tag) {
-  return SECTION_COLORS[tag] || "#6b7280";
+function setSync(label, loading = false) {
+  els.syncState.textContent = label;
+  els.refreshBtn.classList.toggle("loading", loading);
 }
-
-function shortSection(full) {
-  const s = SECTIONS.find((x) => x[0] === full);
-  return s ? s[1] : (full || "").split(",")[0];
-}
-
-/* ---------- data ---------- */
 
 async function fetchTopics() {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 9000);
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 9000);
   try {
-    const res = await fetch(STORE_URL + "?t=" + Date.now(), { cache: "no-store", signal: ctrl.signal });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const raw = (await res.text()).trim();
-    if (!raw) return [];
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : (data.topics || []);
+    const response = await fetch(`${STORE_URL}?t=${Date.now()}`, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const text = (await response.text()).trim();
+    if (!text) return [];
+    const data = JSON.parse(text);
+    const topics = Array.isArray(data) ? data : data.topics;
+    return Array.isArray(topics) ? topics : [];
   } finally {
-    clearTimeout(timer);
+    window.clearTimeout(timer);
   }
 }
 
-async function persist(newTopics) {
-  const res = await fetch(STORE_URL, {
+async function persist(topics) {
+  const response = await fetch(STORE_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ topics: newTopics }),
+    body: JSON.stringify({ topics }),
   });
-  if (!res.ok) throw new Error("HTTP " + res.status);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
 }
 
-async function applyChange(topicId, mutate) {
-  if (applyChange.busy) { toast("Секунду, сохраняется предыдущее…", false); return false; }
-  applyChange.busy = true;
+async function refresh({ quiet = false } = {}) {
+  if (!quiet) setSync("Обновление…", true);
   try {
-    const fresh = await fetchTopics();
-    const idx = fresh.findIndex((t) => t.id === topicId);
-    if (idx === -1) { toast("Тема не найдена — обнови", false); return false; }
-    const changed = mutate(fresh[idx]);
-    if (changed === false) { applyChange.busy = false; return false; }
-    fresh[idx] = changed;
-    await persist(fresh);
-    topics = fresh;
+    state.topics = await fetchTopics();
     saveCache();
-    render();
-    return true;
-  } catch (err) {
-    console.warn("applyChange failed:", err);
-    toast("Не сохранилось. Проверь интернет 🙏", false);
-    return false;
-  } finally {
-    applyChange.busy = false;
+    els.offlineNote.classList.add("hidden");
+    setSync("Синхронизировано", false);
+  } catch (error) {
+    state.topics = loadCache();
+    els.offlineNote.classList.remove("hidden");
+    setSync("Не в сети", false);
   }
-}
-
-async function refresh(silent) {
-  const btn = $("refresh-btn");
-  if (btn) btn.classList.add("spin");
-  try {
-    topics = await fetchTopics();
-    if (!Array.isArray(topics)) topics = [];
-    saveCache();
-    $("offline-bar").classList.add("hidden");
-    $("net-dot").classList.remove("off");
-  } catch (e) {
-    topics = loadCache();
-    $("net-dot").classList.add("off");
-    if (!silent) $("offline-bar").classList.remove("hidden");
-  }
-  if (btn) btn.classList.remove("spin");
   render();
 }
 
-/* свободные сверху, внутри — по дате */
-function sorted() {
-  const list = topics.slice();
-  list.sort((a, b) => {
-    if (!!a.who !== !!b.who) return a.who ? 1 : -1;
-    return (a.date || "9999").localeCompare(b.date || "9999");
-  });
-  return list;
-}
-
-/* ---------- dialog: взять тему (bottom sheet) ---------- */
-
-function openPick(t, viewMode) {
-  pickedTopic = t;
-  const title = $("dlg-title");
-  const sub = $("dlg-sub");
-  const nameRow = $("dlg-name-row");
-  const dateRow = $("dlg-date-row");
-  const save = $("dlg-save");
-
-  title.textContent = viewMode ? t.title : "Берёшь тему?";
-  const theme = t.tags && t.tags.length ? shortSection(t.tags[0]) : "";
-
-  if (viewMode) {
-    sub.textContent = "Тему уже заняли — вот кто и когда:";
-    nameRow.classList.add("hidden");
-    dateRow.classList.add("hidden");
-    save.textContent = "Понятно";
-    save.dataset.mode = "close";
-    let line = $("dlg-view-line");
-    if (!line) {
-      line = document.createElement("p");
-      line.id = "dlg-view-line";
-      line.className = "view-line";
-      sub.after(line);
-    }
-    line.innerHTML = "";
-    const b = document.createElement("b");
-    b.textContent = t.who || "";
-    line.appendChild(b);
-    if (t.date) line.appendChild(document.createTextNode(" · " + fmtDate(t.date)));
-  } else if (t.who) {
-    sub.textContent = "Тема занята («" + (t.who || "") + "»). Можешь перенести дату, если это твоё занятие — или закрой лист.";
-    nameRow.classList.add("hidden");
-    dateRow.classList.remove("hidden");
-    save.textContent = "Сохранить дату";
-    save.dataset.mode = "date";
-  } else {
-    if (theme) sub.textContent = "Раздел: " + theme + ". Впиши имя — его увидят все.";
-    else sub.textContent = "Впиши имя — его увидят все.";
-    nameRow.classList.remove("hidden");
-    dateRow.classList.remove("hidden");
-    save.textContent = "Занять ✋";
-    save.dataset.mode = "take";
-  }
-
-  $("dlg-name").value = localStorage.getItem(LS_NAME) || "";
-  $("dlg-date").value = t.date || nextSaturday();
-  $("pick-sheet").showModal();
-}
-
-async function submitPick() {
-  const mode = $("dlg-save").dataset.mode || "take";
-  const t = pickedTopic;
-  const sheet = $("pick-sheet");
-
-  if (mode === "close") { sheet.close(); return; }
-
-  if (mode === "take") {
-    const name = $("dlg-name").value.trim();
-    if (!name) { toast("Напиши имя 🙏", false); return; }
-    localStorage.setItem(LS_NAME, name);
-    const date = $("dlg-date").value;
-    sheet.close();
-    const ok = await applyChange(t.id, (tt) => {
-      if (tt.who) return false;
-      return { ...tt, who: name, date };
-    });
-    if (ok) toast("Готово! Тема твоя 🙌", true);
-    return;
-  }
-
-  if (mode === "date") {
-    const date = $("dlg-date").value;
-    sheet.close();
-    const ok = await applyChange(t.id, (tt) => ({ ...tt, date }));
-    if (ok) toast("Дата обновлена ✅", true);
-  }
-}
-
-function release(t) {
-  const me = localStorage.getItem(LS_NAME) || "";
-  if (t.who && t.who !== me && !confirm(`Тему занял ${t.who}. Точно освободить?`)) return;
-  applyChange(t.id, (tt) => ({ ...tt, who: null, date: null }));
-  toast("Тема снова свободна", true);
-}
-
-/* ---------- add topic ---------- */
-
-let addTagSelected = SECTIONS[0][0];
-
-function buildAddTagChips() {
-  const wrap = $("add-tag-chips");
-  wrap.innerHTML = "";
-  SECTIONS.forEach(([full, short_]) => {
-    const c = document.createElement("button");
-    c.type = "button";
-    c.className = "chip" + (full === addTagSelected ? " active" : "");
-    c.textContent = short_;
-    c.onclick = () => { addTagSelected = full; buildAddTagChips(); };
-    wrap.appendChild(c);
-  });
-}
-
-async function submitAdd(e) {
-  e.preventDefault();
-  const title = $("add-title").value.trim();
-  if (!title) return;
-  const note = $("add-note").value.trim();
-  const maxId = topics.reduce((m, t) => Math.max(m, t.id || 0), 0);
-  $("add-title").value = "";
-  $("add-note").value = "";
-  $("add-sheet").close();
-  applyChange.busy = true;
+async function mutateTopic(id, mutate) {
+  if (state.busy) return false;
+  state.busy = true;
+  render();
   try {
     const fresh = await fetchTopics();
-    fresh.push({ id: maxId + 1, title, note: note || null, tags: [addTagSelected], who: null, date: null, dilemma: null, discuss: null });
-    await persist(fresh);
-    topics = fresh;
-    saveCache();
-    render();
-    toast("Тема добавлена ✅", true);
-  } catch (err) {
-    console.warn("add failed:", err);
-    toast("Не удалось добавить — попробуй ещё раз", false);
-  } finally {
-    applyChange.busy = false;
-  }
-}
-
-/* ---------- render ---------- */
-
-function filtered() {
-  const q = searchQ.trim().toLowerCase();
-  return sorted().filter((t) => {
-    if (filterStatus === "Свободные" && t.who) return false;
-    if (filterStatus === "Занятые" && !t.who) return false;
-    if (filterTag !== "Все" && !(t.tags || []).includes(filterTag)) return false;
-    if (q) {
-      const hay = ((t.title || "") + " " + (t.note || "") + " " + (t.dilemma || "")).toLowerCase();
-      if (!hay.includes(q)) return false;
+    const index = fresh.findIndex((topic) => String(topic.id) === String(id));
+    if (index < 0) throw new Error("missing");
+    const changed = mutate({ ...fresh[index] });
+    if (!changed) {
+      toast("Эту тему уже заняли. Список обновлён.", true);
+      state.topics = fresh;
+      return false;
     }
+    fresh[index] = changed;
+    await persist(fresh);
+    state.topics = fresh;
+    saveCache();
+    setSync("Синхронизировано");
     return true;
-  });
-}
-
-function chipRow() {
-  const wrap = $("chips");
-  wrap.innerHTML = "";
-  const all = document.createElement("button");
-  all.className = "chip" + (filterTag === "Все" ? " active" : "");
-  all.textContent = "Все";
-  all.onclick = () => { filterTag = "Все"; render(); wrap.scrollLeft = 0; };
-  wrap.appendChild(all);
-  SECTIONS.forEach(([full, short_]) => {
-    const c = document.createElement("button");
-    c.className = "chip" + (filterTag === full ? " active" : "");
-    c.textContent = short_;
-    c.onclick = () => { filterTag = full; render(); };
-    wrap.appendChild(c);
-  });
-}
-
-function skeletons(n) {
-  const host = $("topics");
-  host.innerHTML = "";
-  for (let i = 0; i < n; i++) {
-    const s = document.createElement("div");
-    s.className = "skel";
-    host.appendChild(s);
+  } catch (error) {
+    toast("Не сохранилось. Проверь интернет.", true);
+    return false;
+  } finally {
+    state.busy = false;
+    render();
   }
+}
+
+function sortedFilteredTopics() {
+  const query = state.query.trim().toLocaleLowerCase("ru");
+  return [...state.topics]
+    .filter((topic) => {
+      if (state.status === "free" && topic.who) return false;
+      if (state.status === "taken" && !topic.who) return false;
+      if (state.category !== "all" && !(topic.tags || []).includes(state.category)) return false;
+      if (!query) return true;
+      const haystack = [topic.title, topic.note, topic.dilemma, topic.discuss, topic.who].filter(Boolean).join(" ").toLocaleLowerCase("ru");
+      return haystack.includes(query);
+    })
+    .sort((a, b) => {
+      if (Boolean(a.who) !== Boolean(b.who)) return a.who ? 1 : -1;
+      if (a.who && b.who) return (a.date || "9999").localeCompare(b.date || "9999");
+      return Number(a.id) - Number(b.id);
+    });
+}
+
+function renderSummary() {
+  const total = state.topics.length;
+  const free = state.topics.filter((topic) => !topic.who).length;
+  els.summary.textContent = total ? `${free} свободно из ${total}` : "Пока нет тем";
+}
+
+function renderCategories() {
+  els.categoryFilter.replaceChildren();
+  const options = [["all", "Все разделы"], ...SECTIONS];
+  for (const [value, label] of options) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `category-chip${state.category === value ? " active" : ""}`;
+    button.textContent = label;
+    button.setAttribute("aria-pressed", String(state.category === value));
+    button.addEventListener("click", () => {
+      state.category = value;
+      state.openId = null;
+      render();
+    });
+    els.categoryFilter.appendChild(button);
+  }
+}
+
+function paragraph(className, label, text) {
+  const p = document.createElement("p");
+  p.className = className;
+  if (label) {
+    const strong = document.createElement("strong");
+    strong.textContent = label;
+    p.append(strong, document.createTextNode(" "));
+  }
+  p.append(document.createTextNode(escapeText(text)));
+  return p;
+}
+
+function makeField(label, type, value, name) {
+  const wrap = document.createElement("label");
+  wrap.className = "field";
+  const caption = document.createElement("span");
+  caption.textContent = label;
+  const input = document.createElement("input");
+  input.type = type;
+  input.value = value || "";
+  input.name = name;
+  if (type === "text") {
+    input.maxLength = 40;
+    input.autocomplete = "name";
+  }
+  wrap.append(caption, input);
+  return { wrap, input };
+}
+
+function makeButton(label, className, handler) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `button ${className}`;
+  button.textContent = label;
+  button.disabled = state.busy;
+  button.addEventListener("click", handler);
+  return button;
+}
+
+function buildTopicPanel(topic) {
+  const panel = document.createElement("div");
+  panel.className = "topic-panel";
+  if (topic.dilemma) panel.appendChild(paragraph("detail", "Вопрос:", topic.dilemma));
+  if (topic.discuss) panel.appendChild(paragraph("detail", "Обсудить:", topic.discuss));
+  if (topic.note) panel.appendChild(paragraph("detail", "", topic.note));
+
+  if (topic.who) {
+    const claimed = document.createElement("div");
+    claimed.className = "claimed-by";
+    const strong = document.createElement("strong");
+    strong.textContent = escapeText(topic.who);
+    claimed.append(strong);
+    if (topic.date) claimed.append(document.createTextNode(` · ${formatDate(topic.date)}`));
+    panel.appendChild(claimed);
+  }
+
+  const form = document.createElement("div");
+  form.className = "inline-form";
+  const savedName = localStorage.getItem(LS_NAME) || "";
+
+  if (!topic.who) {
+    const name = makeField("Имя", "text", savedName, "name");
+    const date = makeField("Дата", "date", topic.date || nextSaturday(), "date");
+    const actions = document.createElement("div");
+    actions.className = "inline-actions";
+    actions.appendChild(makeButton("Взять тему", "primary", async () => {
+      const who = name.input.value.trim();
+      if (!who) { toast("Напиши имя.", true); name.input.focus(); return; }
+      localStorage.setItem(LS_NAME, who);
+      const ok = await mutateTopic(topic.id, (fresh) => fresh.who ? null : { ...fresh, who, date: date.input.value || null });
+      if (ok) toast("Тема твоя.");
+    }));
+    form.append(name.wrap, date.wrap, actions);
+  } else {
+    const date = makeField("Дата", "date", topic.date || nextSaturday(), "date");
+    const spacer = document.createElement("div");
+    const actions = document.createElement("div");
+    actions.className = "inline-actions";
+    actions.append(
+      makeButton("Сохранить", "secondary", async () => {
+        const ok = await mutateTopic(topic.id, (fresh) => ({ ...fresh, date: date.input.value || null }));
+        if (ok) toast("Дата обновлена.");
+      }),
+      makeButton("Освободить", "danger", async () => {
+        if (topic.who !== savedName && !window.confirm(`Тему занял ${topic.who}. Освободить?`)) return;
+        const ok = await mutateTopic(topic.id, (fresh) => ({ ...fresh, who: null, date: null }));
+        if (ok) toast("Тема свободна.");
+      })
+    );
+    form.append(spacer, date.wrap, actions);
+  }
+
+  panel.appendChild(form);
+  return panel;
+}
+
+function buildTopic(topic) {
+  const article = document.createElement("article");
+  const isOpen = String(state.openId) === String(topic.id);
+  article.className = `topic-item${isOpen ? " open" : ""}`;
+  const main = document.createElement("button");
+  main.type = "button";
+  main.className = "topic-main";
+  main.setAttribute("aria-expanded", String(isOpen));
+
+  const copy = document.createElement("span");
+  copy.className = "topic-copy";
+  const title = document.createElement("span");
+  title.className = "topic-title";
+  title.textContent = escapeText(topic.title);
+  const meta = document.createElement("span");
+  meta.className = "topic-meta";
+  const category = document.createElement("span");
+  category.className = "category-name";
+  category.textContent = sectionShort(topic.tags?.[0]);
+  meta.appendChild(category);
+  if (topic.who) {
+    meta.append(document.createTextNode("·"));
+    const who = document.createElement("span");
+    who.textContent = topic.date ? `${topic.who}, ${formatDate(topic.date)}` : topic.who;
+    meta.appendChild(who);
+  }
+  copy.append(title, meta);
+
+  const side = document.createElement("span");
+  side.className = "topic-side";
+  const status = document.createElement("span");
+  status.className = `status${topic.who ? " taken" : ""}`;
+  status.textContent = topic.who ? "Занято" : "Свободно";
+  const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  chevron.setAttribute("viewBox", "0 0 24 24");
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.classList.add("chevron");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "m7 10 5 5 5-5");
+  chevron.appendChild(path);
+  side.append(status, chevron);
+  main.append(copy, side);
+  main.addEventListener("click", () => {
+    state.openId = isOpen ? null : topic.id;
+    renderTopics();
+    if (!isOpen) requestAnimationFrame(() => article.querySelector('input[type="text"]')?.focus({ preventScroll: true }));
+  });
+  article.append(main);
+  if (isOpen) article.appendChild(buildTopicPanel(topic));
+  return article;
+}
+
+function renderTopics() {
+  const list = sortedFilteredTopics();
+  els.topicList.replaceChildren();
+  els.topicList.setAttribute("aria-busy", "false");
+  if (!list.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = state.topics.length ? "Ничего не найдено." : "Список пока пуст.";
+    els.topicList.appendChild(empty);
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  list.forEach((topic) => fragment.appendChild(buildTopic(topic)));
+  els.topicList.appendChild(fragment);
 }
 
 function render() {
-  const host = $("topics");
-  host.innerHTML = "";
+  renderSummary();
+  renderCategories();
+  els.statusFilter.querySelectorAll("button").forEach((button) => button.classList.toggle("active", button.dataset.status === state.status));
+  renderTopics();
+}
 
-  const total = topics.length;
-  const taken = topics.filter((t) => t.who).length;
-  $("stat-total").textContent = total;
-  $("stat-taken").textContent = taken;
-  $("stat-free").textContent = total - taken;
-
-  if (total === 0) {
-    const e = document.createElement("div");
-    e.className = "empty";
-    e.innerHTML = '<span class="empty-ico">👋</span>Пока пусто — добавьте первую тему (кнопка справа внизу)';
-    host.appendChild(e);
-    return;
+function renderSkeletons() {
+  els.topicList.replaceChildren();
+  for (let i = 0; i < 6; i += 1) {
+    const skeleton = document.createElement("div");
+    skeleton.className = "skeleton";
+    els.topicList.appendChild(skeleton);
   }
+}
 
-  chipRow();
-
-  const list = filtered();
-  if (list.length === 0) {
-    const e = document.createElement("div");
-    e.className = "empty";
-    e.innerHTML = '<span class="empty-ico">🔍</span>Ничего не нашлось — попробуй другой фильтр';
-    host.appendChild(e);
-    return;
-  }
-
-  list.forEach((t, i) => {
-    const card = document.createElement("div");
-    card.className = "topic-card" + (t.who ? " taken" : "");
-    card.style.animationDelay = Math.min(i * 0.03, 0.3) + "s";
-    if (t.tags && t.tags.length) card.style.borderLeftColor = tagColor(t.tags[0]);
-    else card.style.borderLeftColor = "var(--accent)";
-
-    const head = document.createElement("div");
-    head.className = "topic-head";
-    const titleWrap = document.createElement("div");
-    const h = document.createElement("h3");
-    h.className = "topic-title";
-    h.textContent = t.title;
-    titleWrap.appendChild(h);
-    if (t.note) {
-      const n = document.createElement("p");
-      n.className = "topic-note";
-      n.textContent = t.note;
-      titleWrap.appendChild(n);
-    }
-    head.appendChild(titleWrap);
-
-    const badge = document.createElement("span");
-    badge.className = "badge " + (t.who ? "taken" : "free");
-    badge.textContent = t.who ? "занято" : "свободно";
-    head.appendChild(badge);
-    card.appendChild(head);
-
-    if (t.tags && t.tags.length) {
-      const sec = document.createElement("span");
-      sec.className = "topic-section";
-      sec.textContent = shortSection(t.tags[0]);
-      sec.style.background = tagColor(t.tags[0]) + "1a";
-      sec.style.color = tagColor(t.tags[0]);
-      card.appendChild(sec);
-    }
-
-    if (t.dilemma) {
-      const d = document.createElement("p");
-      d.className = "topic-dilemma";
-      const b = document.createElement("b");
-      b.textContent = "Дилемма: ";
-      d.appendChild(b);
-      d.appendChild(document.createTextNode(t.dilemma));
-      card.appendChild(d);
-    }
-
-    if (t.discuss) {
-      const more = document.createElement("button");
-      more.type = "button";
-      more.className = "more-btn";
-      more.textContent = "Что обсуждать ▾";
-      const details = document.createElement("div");
-      details.className = "topic-details";
-      const p = document.createElement("p");
-      p.textContent = t.discuss;
-      details.appendChild(p);
-      more.onclick = () => {
-        const open = details.classList.toggle("open");
-        more.textContent = open ? "Что обсуждать ▴" : "Что обсуждать ▾";
-      };
-      card.appendChild(more);
-      card.appendChild(details);
-    }
-
-    if (t.who) {
-      const w = document.createElement("div");
-      w.className = "who-line";
-      const av = document.createElement("span");
-      av.className = "avatar";
-      av.textContent = "🙋";
-      w.appendChild(av);
-      const b = document.createElement("b");
-      b.textContent = t.who;
-      w.appendChild(b);
-      if (t.date) {
-        const when = document.createElement("span");
-        when.textContent = "· " + fmtDate(t.date);
-        w.appendChild(when);
-      }
-      card.appendChild(w);
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "actions";
-
-    if (!t.who) {
-      const b = document.createElement("button");
-      b.className = "btn primary";
-      b.textContent = "Взять тему";
-      b.onclick = () => openPick(t);
-      actions.appendChild(b);
-    } else {
-      const me = localStorage.getItem(LS_NAME) || "";
-      if (t.who === me) {
-        const b1 = document.createElement("button");
-        b1.className = "btn ghost";
-        b1.textContent = "Изменить дату";
-        b1.onclick = () => openPick(t);
-        actions.appendChild(b1);
-        const b2 = document.createElement("button");
-        b2.className = "btn ghost";
-        b2.textContent = "Освободить";
-        b2.onclick = () => release(t);
-        actions.appendChild(b2);
-      } else {
-        const b = document.createElement("button");
-        b.className = "btn ghost";
-        b.textContent = "Посмотреть";
-        b.onclick = () => openPick(t, true);
-        actions.appendChild(b);
-      }
-    }
-
-    card.appendChild(actions);
-    host.appendChild(card);
+function renderAddCategories() {
+  els.addCategories.replaceChildren();
+  SECTIONS.forEach(([full, short]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `category-option${state.addCategory === full ? " active" : ""}`;
+    button.textContent = short;
+    button.addEventListener("click", () => { state.addCategory = full; renderAddCategories(); });
+    els.addCategories.appendChild(button);
   });
 }
 
-/* ---------- theme ---------- */
-
-function themeColor() {
-  return (document.documentElement.dataset.theme === "dark") ? "#12131a" : "#4f46e5";
+async function addTopic(event) {
+  event.preventDefault();
+  if (state.busy) return;
+  const title = els.addTitle.value.trim();
+  const note = els.addNote.value.trim();
+  if (!title) return;
+  state.busy = true;
+  try {
+    const fresh = await fetchTopics();
+    const ids = fresh.map((topic) => Number(topic.id)).filter(Number.isFinite);
+    fresh.push({
+      id: (ids.length ? Math.max(...ids) : 0) + 1,
+      title,
+      note: note || null,
+      tags: [state.addCategory],
+      who: null,
+      date: null,
+      dilemma: null,
+      discuss: null,
+    });
+    await persist(fresh);
+    state.topics = fresh;
+    saveCache();
+    els.addDialog.close();
+    els.addForm.reset();
+    render();
+    toast("Тема добавлена.");
+  } catch (error) {
+    toast("Не удалось сохранить.", true);
+  } finally {
+    state.busy = false;
+  }
 }
 
-function applyTheme(mode) {
-  document.documentElement.dataset.theme = mode === "dark" ? "dark" : "";
-  localStorage.setItem(LS_THEME, mode);
-  document.querySelector('meta[name="theme-color"]').setAttribute("content", themeColor());
+function applyTheme(theme) {
+  const value = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = value === "dark" ? "dark" : "";
+  localStorage.setItem(LS_THEME, value);
+  document.querySelector('meta[name="theme-color"]').content = value === "dark" ? "#171816" : "#f7f7f5";
 }
 
-/* ---------- init ---------- */
+function bind() {
+  Object.assign(els, {
+    summary: $("summary"),
+    syncState: $("sync-state"),
+    refreshBtn: $("refresh-btn"),
+    themeBtn: $("theme-btn"),
+    addBtn: $("add-btn"),
+    searchInput: $("search-input"),
+    searchClear: $("search-clear"),
+    statusFilter: $("status-filter"),
+    categoryFilter: $("category-filter"),
+    offlineNote: $("offline-note"),
+    topicList: $("topic-list"),
+    addDialog: $("add-dialog"),
+    addForm: $("add-form"),
+    addTitle: $("add-title"),
+    addNote: $("add-note"),
+    addCategories: $("add-categories"),
+    toastHost: $("toast-host"),
+  });
+
+  els.refreshBtn.addEventListener("click", () => refresh());
+  els.themeBtn.addEventListener("click", () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
+  els.searchInput.addEventListener("input", () => {
+    state.query = els.searchInput.value;
+    state.openId = null;
+    els.searchClear.classList.toggle("hidden", !state.query);
+    renderTopics();
+  });
+  els.searchClear.addEventListener("click", () => {
+    els.searchInput.value = "";
+    state.query = "";
+    state.openId = null;
+    els.searchClear.classList.add("hidden");
+    renderTopics();
+    els.searchInput.focus();
+  });
+  els.statusFilter.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-status]");
+    if (!button) return;
+    state.status = button.dataset.status;
+    state.openId = null;
+    render();
+  });
+  els.addBtn.addEventListener("click", () => {
+    renderAddCategories();
+    els.addDialog.showModal();
+  });
+  $("add-close").addEventListener("click", () => els.addDialog.close());
+  $("add-cancel").addEventListener("click", () => els.addDialog.close());
+  els.addForm.addEventListener("submit", addTopic);
+  els.addDialog.addEventListener("click", (event) => {
+    if (event.target === els.addDialog) els.addDialog.close();
+  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh({ quiet: true }); });
+  window.addEventListener("online", () => refresh({ quiet: true }));
+  window.addEventListener("offline", () => els.offlineNote.classList.remove("hidden"));
+}
 
 function init() {
-  applyTheme(localStorage.getItem(LS_THEME) || "light");
-
-  $("refresh-btn").onclick = () => refresh(false);
-  $("fab").onclick = () => {
-    buildAddTagChips();
-    $("add-sheet").showModal();
-  };
-  $("add-form").onsubmit = submitAdd;
-
-  $("seg-status").querySelectorAll(".seg").forEach((b) => {
-    b.onclick = () => {
-      $("seg-status").querySelectorAll(".seg").forEach((x) => x.classList.remove("active"));
-      b.classList.add("active");
-      filterStatus = b.dataset.v;
-      render();
-    };
-  });
-
-  $("search-input").addEventListener("input", (e) => {
-    searchQ = e.target.value;
-    $("search-clear").classList.toggle("hidden", !searchQ);
-    render();
-  });
-  $("search-clear").onclick = () => {
-    $("search-input").value = "";
-    searchQ = "";
-    $("search-clear").classList.add("hidden");
-    render();
-  };
-
-  $("dlg-save").onclick = submitPick;
-  $("dlg-cancel").onclick = () => $("pick-sheet").close();
-
-  $("theme-btn").onclick = () => {
-    const cur = localStorage.getItem(LS_THEME) || "light";
-    applyTheme(cur === "dark" ? "light" : "dark");
-    $("theme-btn").textContent = cur === "dark" ? "🌙" : "☀️";
-  };
-  if ((localStorage.getItem(LS_THEME) || "light") === "dark") $("theme-btn").textContent = "☀️";
-
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) refresh(true);
-  });
-  window.addEventListener("online", () => refresh(true));
-  window.addEventListener("offline", () => $("offline-bar").classList.remove("hidden"));
-
-  skeletons(4);
-  refresh(true).catch((e) => {
-    console.warn("init refresh failed:", e);
-    // последний шанс: рендер из кэша localStorage
-    topics = loadCache();
+  const preferred = localStorage.getItem(LS_THEME) || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  applyTheme(preferred);
+  bind();
+  renderSkeletons();
+  refresh().catch(() => {
+    state.topics = loadCache();
     render();
   });
 }
 
-/* init в try/catch: любая ошибка — красное сообщение вместо мёртвой страницы */
-(function bootstrap() {
-  try {
-    init();
-  } catch (e) {
-    console.warn("init failed:", e);
-    document.body.insertAdjacentHTML("beforeend",
-      '<div style="position:fixed;left:12px;right:12px;bottom:84px;background:#b91c1c;color:#fff;padding:12px;border-radius:12px;font-size:13px;z-index:99">Ошибка загрузки: ' +
-      String(e && e.message || e) + ' — обнови страницу</div>');
-  }
-})();
+try {
+  init();
+} catch (error) {
+  document.body.textContent = "Не удалось открыть список. Обнови страницу.";
+}
 
-/* Service Worker (PWA) */
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  navigator.serviceWorker.register(SW_PATH).catch(() => {});
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
 }
