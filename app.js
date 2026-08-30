@@ -5,13 +5,25 @@ const STORE_URL = "https://textdb.dev/api/data/sholi-schedule-x9k2";
 const LS_CACHE = "sholi_topics_cache";
 const LS_NAME = "sholi_user_name";
 
-const TAG_COLORS = {
-  "Библия": "#5b4fe9",
-  "Игры": "#e07b39",
-  "История": "#0e9488",
-  "Практика": "#c2410c",
-  "Общение": "#be185d",
-  "Другое": "#6b7280",
+/* [полное название из банка тем, короткая подпись чипа] */
+const SECTIONS = [
+  ["Я, характер и принятие", "Я и характер"],
+  ["Общение, дружба и конфликты", "Общение"],
+  ["Бог, вера и сомнения", "Вера"],
+  ["Любовь, симпатия и выбор человека", "Любовь"],
+  ["Церковь, авторитет и служение", "Церковь"],
+  ["Добро, зло, грех и свобода", "Добро и зло"],
+  ["Современная жизнь и внутренние решения", "Жизнь и выбор"],
+];
+
+const SECTION_COLORS = {
+  "Я, характер и принятие": "#5b4fe9",
+  "Общение, дружба и конфликты": "#be185d",
+  "Бог, вера и сомнения": "#0e9488",
+  "Любовь, симпатия и выбор человека": "#e07b39",
+  "Церковь, авторитет и служение": "#7c3aed",
+  "Добро, зло, грех и свобода": "#c2410c",
+  "Современная жизнь и внутренние решения": "#2563eb",
 };
 
 let topics = [];
@@ -19,7 +31,6 @@ let filterTag = "Все";
 let pickedTopic = null;
 
 const $ = (id) => document.getElementById(id);
-const TAGS = ["Все", "Библия", "Игры", "История", "Практика", "Общение", "Другое"];
 
 /* ---------- helpers ---------- */
 
@@ -56,7 +67,12 @@ function toast(msg, ok) {
 }
 
 function tagColor(tag) {
-  return TAG_COLORS[tag] || TAG_COLORS["Другое"];
+  return SECTION_COLORS[tag] || "#6b7280";
+}
+
+function shortSection(full) {
+  const s = SECTIONS.find((x) => x[0] === full);
+  return s ? s[1] : (full || "").split(",")[0];
 }
 
 /* ---------- data ---------- */
@@ -199,17 +215,17 @@ function release(t) {
 
 /* ---------- add topic ---------- */
 
-let addTagSelected = "Другое";
+let addTagSelected = SECTIONS[0][0];
 
 function buildAddTagChips() {
   const wrap = $("add-tag-chips");
   wrap.innerHTML = "";
-  TAGS.filter((t) => t !== "Все").forEach((tag) => {
+  SECTIONS.forEach(([full, short_]) => {
     const c = document.createElement("button");
     c.type = "button";
-    c.className = "chip" + (tag === addTagSelected ? " active" : "");
-    c.textContent = tag;
-    c.onclick = () => { addTagSelected = tag; buildAddTagChips(); };
+    c.className = "chip" + (full === addTagSelected ? " active" : "");
+    c.textContent = short_;
+    c.onclick = () => { addTagSelected = full; buildAddTagChips(); };
     wrap.appendChild(c);
   });
 }
@@ -219,7 +235,7 @@ async function submitAdd(e) {
   const title = $("add-title").value.trim();
   if (!title) return;
   const note = $("add-note").value.trim();
-  const tags = (window.additionalTags && window.additionalTags.length) ? window.additionalTags : [addTagSelected];
+  const tags = [addTagSelected];
   const maxId = topics.reduce((m, t) => Math.max(m, t.id || 0), 0);
   $("add-title").value = "";
   $("add-note").value = "";
@@ -227,7 +243,7 @@ async function submitAdd(e) {
   applyChange.busy = true;
   try {
     const fresh = await fetchTopics();
-    fresh.push({ id: maxId + 1, title, note: note || null, tags, who: null, date: null });
+    fresh.push({ id: maxId + 1, title, note: note || null, tags, who: null, date: null, dilemma: null, discuss: null });
     await persist(fresh);
     topics = fresh;
     saveCache();
@@ -246,11 +262,16 @@ async function submitAdd(e) {
 function chipRow() {
   const wrap = document.createElement("div");
   wrap.className = "chips";
-  TAGS.forEach((tag) => {
+  const all = document.createElement("button");
+  all.className = "chip" + (filterTag === "Все" ? " active" : "");
+  all.textContent = "Все";
+  all.onclick = () => { filterTag = "Все"; render(); };
+  wrap.appendChild(all);
+  SECTIONS.forEach(([full, short_]) => {
     const c = document.createElement("button");
-    c.className = "chip" + (tag === filterTag ? " active" : "");
-    c.textContent = tag;
-    c.onclick = () => { filterTag = tag; render(); };
+    c.className = "chip" + (filterTag === full ? " active" : "");
+    c.textContent = short_;
+    c.onclick = () => { filterTag = full; render(); };
     wrap.appendChild(c);
   });
   return wrap;
@@ -308,6 +329,39 @@ function render() {
     badge.textContent = t.who ? "занято" : "свободно";
     head.appendChild(badge);
     card.appendChild(head);
+
+    // дилемма + раскрывающийся блок «что обсуждать»
+    if (t.dilemma || t.discuss) {
+      const d = document.createElement("p");
+      d.className = "topic-dilemma";
+      if (t.dilemma) {
+        const b = document.createElement("b");
+        b.textContent = "Дилемма: ";
+        d.appendChild(b);
+        d.appendChild(document.createTextNode(t.dilemma));
+      } else if (t.discuss) {
+        d.textContent = t.discuss;
+      }
+      card.appendChild(d);
+
+      if (t.dilemma && t.discuss) {
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "more-btn";
+        more.textContent = "Что обсуждать ▾";
+        const details = document.createElement("div");
+        details.className = "topic-details";
+        const p = document.createElement("p");
+        p.textContent = t.discuss;
+        details.appendChild(p);
+        more.onclick = () => {
+          const open = details.classList.toggle("open");
+          more.textContent = open ? "Что обсуждать ▴" : "Что обсуждать ▾";
+        };
+        card.appendChild(more);
+        card.appendChild(details);
+      }
+    }
 
     if (t.who) {
       const w = document.createElement("div");
