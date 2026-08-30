@@ -1,4 +1,4 @@
-const CACHE = "sholi-schedule-v3";
+const CACHE = "sholi-schedule-v4";
 const ASSETS = [
   "./",
   "./index.html",
