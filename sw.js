@@ -1,4 +1,4 @@
-const CACHE = "sholi-schedule-v2";
+const CACHE = "sholi-schedule-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -24,22 +24,37 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-/* app-shell из кэша, данные всегда с сети */
+/* Код страницы (html/css/js) — всегда свежий из сети, кэш только для офлайна.
+   Иконки/манифест — из кэша. Данные textdb.dev — всегда сеть, SW не трогаем. */
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (url.hostname === "textdb.dev") return;
   if (e.request.method !== "GET") return;
+
+  const isShell = ["document", "script", "style"].includes(e.request.destination);
+
+  if (isShell) {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+          return res;
+        })
+        .catch(() => caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || caches.match("./")))
+    );
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(
       (hit) =>
         hit ||
-        fetch(e.request)
-          .then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(e.request, copy));
-            return res;
-          })
-          .catch(() => caches.match("./index.html"))
+        fetch(e.request).then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+          return res;
+        })
     )
   );
 });
