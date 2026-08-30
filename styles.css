@@ -135,13 +135,22 @@ html[data-theme="dark"] .sun-icon { display: block; }
 .detail strong { color: var(--ink); font-weight: 680; }
 .claimed-by { margin-top: 14px; padding: 12px 13px; border-radius: 10px; background: var(--surface-soft); font-size: 13px; }
 .claimed-by strong { font-weight: 720; }
-.inline-form { margin-top: 16px; display: grid; grid-template-columns: minmax(150px, 1fr) minmax(150px, .7fr) auto; gap: 8px; align-items: end; }
+.inline-form { width: 100%; min-width: 0; margin-top: 16px; display: grid; grid-template-columns: minmax(150px, 1fr) minmax(150px, .7fr) auto; gap: 8px; align-items: end; }
+.inline-form > * { min-width: 0; max-width: 100%; }
 .inline-form .field { margin: 0; }
 .inline-actions { display: flex; gap: 7px; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > span, .field legend { color: var(--muted); font-size: 11px; font-weight: 650; }
 .field em { font-style: normal; font-weight: 400; }
-.field input { width: 100%; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); outline: 0; font-size: 14px; }
+.field input { display: block; width: 100%; min-width: 0; max-width: 100%; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); outline: 0; font-size: 14px; }
+.field input[type="date"] {
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.field input[type="date"]::-webkit-date-and-time-value { min-width: 0; text-align: left; }
 .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
 .button.secondary { border: 1px solid var(--line); background: transparent; color: var(--ink); }
 .button.secondary:hover { background: var(--surface-soft); }
@@ -192,6 +201,7 @@ html[data-theme="dark"] .sun-icon { display: block; }
   .topic-side { gap: 8px; }
   .topic-panel { padding: 0 14px 15px; }
   .inline-form { grid-template-columns: 1fr; }
+  .field input { font-size: 16px; }
   .inline-actions { margin-top: 2px; }
   .inline-actions .button { flex: 1; }
   .modal { width: calc(100% - 20px); }
