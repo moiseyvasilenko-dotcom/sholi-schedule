@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#5b4fe9">
+  <title>Молодёжка · Темы</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="hero-icon">🗓️</div>
+      <div>
+        <h1>Молодёжка · Темы</h1>
+        <p class="hero-sub">Кто какую тему ведёт и когда</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="offline-bar" class="offline-bar hidden">📴 Нет связи — показаны последние сохранённые данные</div>
+
+    <div class="stats-bar" id="stats-bar">
+      <span id="stat-text">Загрузка…</span>
+      <button id="refresh-btn" class="icon-btn" title="Обновить" aria-label="Обновить">⟳</button>
+    </div>
+
+    <!-- Форма добавления темы -->
+    <section class="card add-card">
+      <h2 class="card-title" id="add-toggle">➕ Добавить тему</h2>
+      <form id="add-form" class="add-form hidden">
+        <input type="text" id="add-title" placeholder="Название темы — например: «Молитва»" maxlength="120" required>
+        <input type="text" id="add-note" placeholder="Пояснение (необязательно)" maxlength="200">
+        <div id="add-tag-chips" class="chips" style="margin-bottom:0"></div>
+        <button type="submit" class="btn primary">Сохранить тему</button>
+      </form>
+    </section>
+
+    <!-- Список тем -->
+    <section id="topics" class="topics" aria-live="polite"></section>
+
+    <p class="foot">Общие данные · синхронизируются автоматически</p>
+  </main>
+
+  <dialog id="pick-dialog">
+    <div class="dlg-inner">
+      <h2 class="dlg-title" id="dlg-title">Берёшь тему?</h2>
+      <p class="dlg-sub" id="dlg-sub"></p>
+      <div id="dlg-name-row">
+        <input type="text" id="dlg-name" placeholder="Твоё имя" maxlength="40">
+      </div>
+      <div id="dlg-date-row">
+        <label for="dlg-date" style="font-size:13px;color:var(--muted)">Дата молодёжки</label>
+        <input type="date" id="dlg-date" style="width:100%;padding:12px 14px;border-radius:12px;border:1.5px solid var(--line);font-size:15px;background:#fafaff;margin-top:6px">
+      </div>
+      <div class="dlg-row">
+        <button class="btn ghost" id="dlg-cancel">Отмена</button>
+        <button class="btn primary" id="dlg-save" data-mode="take">Занять ✋</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
