@@ -2,43 +2,57 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#5b4fe9">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#4f46e5">
   <title>Молодёжка · Темы</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
-  <header class="hero">
-    <div class="hero-inner">
-      <div class="hero-icon">🗓️</div>
-      <div>
-        <h1>Молодёжка · Темы</h1>
-        <p class="hero-sub">Кто какую тему ведёт и когда</p>
-      </div>
+
+  <!-- Верхняя панель -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <span class="brand">🗓️ <b>Молодёжка</b> · Темы</span>
+      <span class="topbar-right">
+        <span id="net-dot" class="net-dot" title="Сеть"></span>
+        <button id="theme-btn" class="icon-btn" title="Тёмная тема" aria-label="Переключить тему">🌙</button>
+        <button id="refresh-btn" class="icon-btn" title="Обновить" aria-label="Обновить">⟳</button>
+      </span>
     </div>
   </header>
 
   <main class="wrap">
-    <div id="offline-bar" class="offline-bar hidden">📴 Нет связи — показаны последние сохранённые данные</div>
+    <!-- Шапка со счётчиками -->
+    <section class="hero">
+      <h1>Кто какую тему ведёт и когда</h1>
+      <div class="stats">
+        <div class="stat"><span id="stat-total" class="stat-num">—</span><span class="stat-label">тем</span></div>
+        <div class="stat"><span id="stat-taken" class="stat-num c-taken">—</span><span class="stat-label">занято</span></div>
+        <div class="stat"><span id="stat-free" class="stat-num c-free">—</span><span class="stat-label">свободно</span></div>
+      </div>
+    </section>
 
-    <div class="stats-bar" id="stats-bar">
-      <span id="stat-text">Загрузка…</span>
-      <button id="refresh-btn" class="icon-btn" title="Обновить" aria-label="Обновить">⟳</button>
+    <div id="offline-bar" class="offline-bar hidden">📴 Нет связи — показаны сохранённые данные</div>
+
+    <!-- Поиск -->
+    <div class="search-box">
+      <span class="search-ico">🔍</span>
+      <input type="search" id="search-input" placeholder="Поиск темы…" autocomplete="off">
+      <button id="search-clear" class="search-clear hidden" aria-label="Очистить">✕</button>
     </div>
 
-    <!-- Форма добавления темы -->
-    <section class="card add-card">
-      <h2 class="card-title" id="add-toggle">➕ Добавить тему</h2>
-      <form id="add-form" class="add-form hidden">
-        <input type="text" id="add-title" placeholder="Название темы — например: «Молитва»" maxlength="120" required>
-        <input type="text" id="add-note" placeholder="Пояснение (необязательно)" maxlength="200">
-        <div id="add-tag-chips" class="chips" style="margin-bottom:0"></div>
-        <button type="submit" class="btn primary">Сохранить тему</button>
-      </form>
-    </section>
+    <!-- Статус: все / свободные / занятые -->
+    <div class="segmented" id="seg-status" role="tablist">
+      <button class="seg active" data-v="Все">Все</button>
+      <button class="seg" data-v="Свободные">Свободные</button>
+      <button class="seg" data-v="Занятые">Занятые</button>
+    </div>
+
+    <!-- Разделы (горизонтальный скролл) -->
+    <div class="chips-scroller" id="chips"></div>
 
     <!-- Список тем -->
     <section id="topics" class="topics" aria-live="polite"></section>
@@ -46,24 +60,43 @@
     <p class="foot">Общие данные · синхронизируются автоматически</p>
   </main>
 
-  <dialog id="pick-dialog">
-    <div class="dlg-inner">
-      <h2 class="dlg-title" id="dlg-title">Берёшь тему?</h2>
-      <p class="dlg-sub" id="dlg-sub"></p>
+  <!-- FAB добавить тему -->
+  <button id="fab" class="fab" aria-label="Добавить тему">＋ Тема</button>
+
+  <!-- нижний лист: взять тему -->
+  <dialog id="pick-sheet" class="sheet">
+    <div class="sheet-grab"></div>
+    <div class="sheet-inner">
+      <h2 class="sheet-title" id="dlg-title">Берёшь тему?</h2>
+      <p class="sheet-sub" id="dlg-sub"></p>
       <div id="dlg-name-row">
-        <input type="text" id="dlg-name" placeholder="Твоё имя" maxlength="40">
+        <input type="text" id="dlg-name" placeholder="Твоё имя" maxlength="40" autocomplete="name">
       </div>
       <div id="dlg-date-row">
-        <label for="dlg-date" style="font-size:13px;color:var(--muted)">Дата молодёжки</label>
-        <input type="date" id="dlg-date" style="width:100%;padding:12px 14px;border-radius:12px;border:1.5px solid var(--line);font-size:15px;background:#fafaff;margin-top:6px">
+        <label class="fld-label" for="dlg-date">Дата молодёжки</label>
+        <input type="date" id="dlg-date">
       </div>
-      <div class="dlg-row">
+      <div class="sheet-row">
         <button class="btn ghost" id="dlg-cancel">Отмена</button>
         <button class="btn primary" id="dlg-save" data-mode="take">Занять ✋</button>
       </div>
     </div>
   </dialog>
 
-  <script src="app.js"></script>
+  <!-- нижний лист: добавить тему -->
+  <dialog id="add-sheet" class="sheet">
+    <div class="sheet-grab"></div>
+    <div class="sheet-inner">
+      <h2 class="sheet-title">Новая тема</h2>
+      <form id="add-form">
+        <input type="text" id="add-title" placeholder="Название темы" maxlength="120" required>
+        <input type="text" id="add-note" placeholder="Пояснение (необязательно)" maxlength="200">
+        <div id="add-tag-chips" class="chips-in-sheet"></div>
+        <button type="submit" class="btn primary full">Сохранить тему</button>
+      </form>
+    </div>
+  </dialog>
+
+  <script src="app.js?v=2"></script>
 </body>
 </html>
