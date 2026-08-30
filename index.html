@@ -38,6 +38,18 @@
         <h1 id="page-title">Темы</h1>
         <p id="summary">Загружаем список…</p>
       </div>
+      <button id="schedule-btn" class="schedule-open" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+        Расписание
+      </button>
+    </section>
+
+    <section class="schedule-preview" aria-labelledby="schedule-title">
+      <div class="section-head">
+        <h2 id="schedule-title">Ближайшие воскресенья</h2>
+        <button id="calendar-link" type="button">Весь календарь</button>
+      </div>
+      <div id="sunday-strip" class="sunday-strip" aria-live="polite"></div>
     </section>
 
     <section class="controls" aria-label="Фильтры тем">
@@ -81,6 +93,29 @@
         <button class="button primary" type="submit">Сохранить</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="schedule-dialog" class="modal schedule-modal">
+    <div class="modal-card schedule-card">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">Расписание молодёжки</p>
+          <h2>Воскресенья</h2>
+        </div>
+        <button id="schedule-close" class="icon-button" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <div class="calendar-nav">
+        <button id="month-prev" class="icon-button" type="button" aria-label="Предыдущий месяц">‹</button>
+        <strong id="month-title"></strong>
+        <button id="month-next" class="icon-button" type="button" aria-label="Следующий месяц">›</button>
+      </div>
+      <div class="calendar-weekdays" aria-hidden="true">
+        <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+      </div>
+      <div id="calendar-grid" class="calendar-grid" role="grid" aria-label="Календарь воскресений"></div>
+      <div class="calendar-legend"><span><i class="free-dot"></i>Свободно</span><span><i class="taken-dot"></i>Занято</span></div>
+      <div id="calendar-detail" class="calendar-detail" aria-live="polite"></div>
+    </div>
   </dialog>
 
   <div id="toast-host" class="toast-host" aria-live="polite"></div>

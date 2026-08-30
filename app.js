@@ -22,6 +22,8 @@ const state = {
   openId: null,
   busy: false,
   addCategory: SECTIONS[0][0],
+  scheduleMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+  selectedScheduleDate: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -42,11 +44,46 @@ function formatDate(iso) {
   return date.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 }
 
-function nextSaturday() {
+function dateToISO(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dateFromISO(iso) {
+  const [year, month, day] = String(iso || "").split("-").map(Number);
+  return new Date(year, month - 1, day, 12);
+}
+
+function isSunday(iso) {
+  const date = dateFromISO(iso);
+  return !Number.isNaN(date.getTime()) && date.getDay() === 0;
+}
+
+function firstUpcomingSunday() {
   const date = new Date();
-  const shift = (6 - date.getDay() + 7) % 7 || 7;
-  date.setDate(date.getDate() + shift);
-  return date.toISOString().slice(0, 10);
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + ((7 - date.getDay()) % 7));
+  return date;
+}
+
+function sundayDates(count = 12) {
+  const dates = [];
+  const date = firstUpcomingSunday();
+  for (let index = 0; index < count; index += 1) {
+    dates.push(dateToISO(date));
+    date.setDate(date.getDate() + 7);
+  }
+  return dates;
+}
+
+function topicOnDate(topics, date, exceptId = null) {
+  return topics.find((topic) => topic.who && topic.date === date && String(topic.id) !== String(exceptId));
+}
+
+function nextAvailableSunday(topics, exceptId = null) {
+  return sundayDates(52).find((date) => !topicOnDate(topics, date, exceptId)) || dateToISO(firstUpcomingSunday());
 }
 
 function saveCache() {
@@ -121,7 +158,12 @@ async function mutateTopic(id, mutate) {
     const fresh = await fetchTopics();
     const index = fresh.findIndex((topic) => String(topic.id) === String(id));
     if (index < 0) throw new Error("missing");
-    const changed = mutate({ ...fresh[index] });
+    const changed = mutate({ ...fresh[index] }, fresh);
+    if (changed?.error) {
+      toast(changed.error, true);
+      state.topics = fresh;
+      return false;
+    }
     if (!changed) {
       toast("Эту тему уже заняли. Список обновлён.", true);
       state.topics = fresh;
@@ -166,6 +208,108 @@ function renderSummary() {
   els.summary.textContent = total ? `${free} свободно из ${total}` : "Пока нет тем";
 }
 
+function openSchedule(date = null) {
+  const selected = date || dateToISO(firstUpcomingSunday());
+  const parsed = dateFromISO(selected);
+  state.selectedScheduleDate = selected;
+  state.scheduleMonth = new Date(parsed.getFullYear(), parsed.getMonth(), 1);
+  renderCalendar();
+  if (!els.scheduleDialog.open) els.scheduleDialog.showModal();
+}
+
+function renderSundayStrip() {
+  els.sundayStrip.replaceChildren();
+  const fragment = document.createDocumentFragment();
+  for (const date of sundayDates(4)) {
+    const scheduled = topicOnDate(state.topics, date);
+    const parsed = dateFromISO(date);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `sunday-card${scheduled ? " taken" : ""}`;
+    button.setAttribute("aria-label", `${formatDate(date)} — ${scheduled ? `${scheduled.who}, ${scheduled.title}` : "свободно"}`);
+
+    const dateLine = document.createElement("span");
+    dateLine.className = "sunday-date";
+    const day = document.createElement("strong");
+    day.textContent = String(parsed.getDate());
+    const month = document.createElement("span");
+    month.textContent = parsed.toLocaleDateString("ru-RU", { month: "short" }).replace(".", "");
+    dateLine.append(day, month);
+
+    const person = document.createElement("span");
+    person.className = "sunday-person";
+    person.textContent = scheduled ? scheduled.who : "Свободно";
+    button.append(dateLine, person);
+    button.addEventListener("click", () => openSchedule(date));
+    fragment.appendChild(button);
+  }
+  els.sundayStrip.appendChild(fragment);
+}
+
+function renderCalendarDetail(date) {
+  const scheduled = topicOnDate(state.topics, date);
+  els.calendarDetail.replaceChildren();
+  els.calendarDetail.classList.toggle("free", !scheduled);
+  const time = document.createElement("time");
+  time.dateTime = date;
+  time.textContent = dateFromISO(date).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const title = document.createElement("strong");
+  title.textContent = scheduled ? scheduled.who : "Свободное воскресенье";
+  els.calendarDetail.append(time, title);
+  if (scheduled) {
+    const topic = document.createElement("p");
+    topic.textContent = scheduled.title;
+    els.calendarDetail.appendChild(topic);
+  }
+}
+
+function renderCalendar() {
+  if (!els.calendarGrid) return;
+  const year = state.scheduleMonth.getFullYear();
+  const month = state.scheduleMonth.getMonth();
+  els.monthTitle.textContent = state.scheduleMonth.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+  els.calendarGrid.replaceChildren();
+
+  const firstOffset = (new Date(year, month, 1).getDay() + 6) % 7;
+  const days = new Date(year, month + 1, 0).getDate();
+  for (let index = 0; index < firstOffset; index += 1) {
+    const blank = document.createElement("span");
+    blank.className = "calendar-day";
+    els.calendarGrid.appendChild(blank);
+  }
+
+  let firstSunday = null;
+  for (let day = 1; day <= days; day += 1) {
+    const parsed = new Date(year, month, day, 12);
+    const date = dateToISO(parsed);
+    const sunday = parsed.getDay() === 0;
+    const scheduled = sunday ? topicOnDate(state.topics, date) : null;
+    const cell = document.createElement(sunday ? "button" : "span");
+    if (sunday) {
+      cell.type = "button";
+      firstSunday ||= date;
+    }
+    cell.className = `calendar-day${sunday ? " sunday" : ""}${scheduled ? " taken" : ""}${state.selectedScheduleDate === date ? " selected" : ""}${date === dateToISO(new Date()) ? " today" : ""}`;
+    cell.textContent = String(day);
+    if (sunday) {
+      cell.setAttribute("aria-label", `${formatDate(date)} — ${scheduled ? `занято, ${scheduled.who}` : "свободно"}`);
+      cell.addEventListener("click", () => {
+        state.selectedScheduleDate = date;
+        renderCalendar();
+      });
+    }
+    els.calendarGrid.appendChild(cell);
+  }
+
+  const selectedIsVisible = state.selectedScheduleDate && dateFromISO(state.selectedScheduleDate).getMonth() === month && dateFromISO(state.selectedScheduleDate).getFullYear() === year;
+  if (!selectedIsVisible) state.selectedScheduleDate = firstSunday;
+  if (state.selectedScheduleDate) {
+    const selectedCell = [...els.calendarGrid.querySelectorAll(".sunday")].find((cell) => cell.textContent === String(dateFromISO(state.selectedScheduleDate).getDate()));
+    selectedCell?.classList.add("selected");
+    renderCalendarDetail(state.selectedScheduleDate);
+  }
+}
+
 function renderCategories() {
   els.categoryFilter.replaceChildren();
   const options = [["all", "Все разделы"], ...SECTIONS];
@@ -208,9 +352,29 @@ function makeField(label, type, value, name) {
   if (type === "text") {
     input.maxLength = 40;
     input.autocomplete = "name";
+  } else if (type === "date") {
+    input.required = true;
+    input.min = dateToISO(new Date());
   }
   wrap.append(caption, input);
   return { wrap, input };
+}
+
+function validateScheduleDate(date, topicId) {
+  if (!date) {
+    toast("Выбери воскресенье.", true);
+    return false;
+  }
+  if (!isSunday(date)) {
+    toast("Для встречи нужно выбрать воскресенье.", true);
+    return false;
+  }
+  const conflict = topicOnDate(state.topics, date, topicId);
+  if (conflict) {
+    toast(`${formatDate(date)} уже занято: ${conflict.who}.`, true);
+    return false;
+  }
+  return true;
 }
 
 function makeButton(label, className, handler) {
@@ -246,25 +410,38 @@ function buildTopicPanel(topic) {
 
   if (!topic.who) {
     const name = makeField("Имя", "text", savedName, "name");
-    const date = makeField("Дата", "date", topic.date || nextSaturday(), "date");
+    const date = makeField("Воскресенье", "date", topic.date || nextAvailableSunday(state.topics, topic.id), "date");
     const actions = document.createElement("div");
     actions.className = "inline-actions";
     actions.appendChild(makeButton("Взять тему", "primary", async () => {
       const who = name.input.value.trim();
       if (!who) { toast("Напиши имя.", true); name.input.focus(); return; }
+      const selectedDate = date.input.value;
+      if (!validateScheduleDate(selectedDate, topic.id)) { date.input.focus(); return; }
       localStorage.setItem(LS_NAME, who);
-      const ok = await mutateTopic(topic.id, (fresh) => fresh.who ? null : { ...fresh, who, date: date.input.value || null });
+      const ok = await mutateTopic(topic.id, (fresh, topics) => {
+        if (fresh.who) return null;
+        const conflict = topicOnDate(topics, selectedDate, topic.id);
+        if (conflict) return { error: `${formatDate(selectedDate)} уже занято: ${conflict.who}.` };
+        return { ...fresh, who, date: selectedDate };
+      });
       if (ok) toast("Тема твоя.");
     }));
     form.append(name.wrap, date.wrap, actions);
   } else {
-    const date = makeField("Дата", "date", topic.date || nextSaturday(), "date");
+    const date = makeField("Воскресенье", "date", topic.date || nextAvailableSunday(state.topics, topic.id), "date");
     const spacer = document.createElement("div");
     const actions = document.createElement("div");
     actions.className = "inline-actions";
     actions.append(
       makeButton("Сохранить", "secondary", async () => {
-        const ok = await mutateTopic(topic.id, (fresh) => ({ ...fresh, date: date.input.value || null }));
+        const selectedDate = date.input.value;
+        if (!validateScheduleDate(selectedDate, topic.id)) { date.input.focus(); return; }
+        const ok = await mutateTopic(topic.id, (fresh, topics) => {
+          const conflict = topicOnDate(topics, selectedDate, topic.id);
+          if (conflict) return { error: `${formatDate(selectedDate)} уже занято: ${conflict.who}.` };
+          return { ...fresh, date: selectedDate };
+        });
         if (ok) toast("Дата обновлена.");
       }),
       makeButton("Освободить", "danger", async () => {
@@ -350,9 +527,11 @@ function renderTopics() {
 
 function render() {
   renderSummary();
+  renderSundayStrip();
   renderCategories();
   els.statusFilter.querySelectorAll("button").forEach((button) => button.classList.toggle("active", button.dataset.status === state.status));
   renderTopics();
+  if (els.scheduleDialog.open) renderCalendar();
 }
 
 function renderSkeletons() {
@@ -435,6 +614,13 @@ function bind() {
     addTitle: $("add-title"),
     addNote: $("add-note"),
     addCategories: $("add-categories"),
+    scheduleBtn: $("schedule-btn"),
+    calendarLink: $("calendar-link"),
+    sundayStrip: $("sunday-strip"),
+    scheduleDialog: $("schedule-dialog"),
+    monthTitle: $("month-title"),
+    calendarGrid: $("calendar-grid"),
+    calendarDetail: $("calendar-detail"),
     toastHost: $("toast-host"),
   });
 
@@ -470,6 +656,22 @@ function bind() {
   els.addForm.addEventListener("submit", addTopic);
   els.addDialog.addEventListener("click", (event) => {
     if (event.target === els.addDialog) els.addDialog.close();
+  });
+  els.scheduleBtn.addEventListener("click", () => openSchedule());
+  els.calendarLink.addEventListener("click", () => openSchedule());
+  $("schedule-close").addEventListener("click", () => els.scheduleDialog.close());
+  $("month-prev").addEventListener("click", () => {
+    state.scheduleMonth = new Date(state.scheduleMonth.getFullYear(), state.scheduleMonth.getMonth() - 1, 1);
+    state.selectedScheduleDate = null;
+    renderCalendar();
+  });
+  $("month-next").addEventListener("click", () => {
+    state.scheduleMonth = new Date(state.scheduleMonth.getFullYear(), state.scheduleMonth.getMonth() + 1, 1);
+    state.selectedScheduleDate = null;
+    renderCalendar();
+  });
+  els.scheduleDialog.addEventListener("click", (event) => {
+    if (event.target === els.scheduleDialog) els.scheduleDialog.close();
   });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh({ quiet: true }); });
   window.addEventListener("online", () => refresh({ quiet: true }));
